@@ -1,7 +1,6 @@
-FROM mcr.microsoft.com/dotnet/aspnet:6.0
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 
-EXPOSE 80
-EXPOSE 443
+EXPOSE 8080
 
 WORKDIR /app
 
