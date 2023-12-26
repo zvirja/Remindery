@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Nuke.Common;
 using Nuke.Common.CI;
@@ -101,10 +102,27 @@ class Build : NukeBuild
         .DependsOn(Publish)
         .Executes(() =>
         {
-            DockerBuild(c => c
+            // From https://docs.docker.com/build/building/multi-platform/#qemu
+            DockerRun(c => c
+                .SetImage("tonistiigi/binfmt")
+                .SetArgs("--install", "all")
+                .EnablePrivileged()
+                .EnableRm());
+
+            var builderExists = Docker("buildx ls").Any(x => x.Text.StartsWith("remindery"));
+            if (builderExists)
+            {
+                Docker("buildx rm remindery");
+            }
+
+            Docker("buildx create --name remindery");
+
+            DockerBuildxBuild(c => c
+                .SetBuilder("remindery")
                 .SetFile(Dockerfile)
                 .SetTag(DockerImageName)
                 .SetPath(ArtifactsDir)
+                .SetPlatform("linux/amd64,linux/arm64")
             );
         });
 
@@ -112,13 +130,30 @@ class Build : NukeBuild
         .DependsOn(BuildDocker)
         .Executes(() =>
         {
-            DockerPush(c => c
-                .SetName($"{DockerImageName}:latest")
+            // Workaround for https://github.com/docker/buildx/issues/59
+            // Also: https://uninterrupted.tech/blog/creating-docker-images-that-can-run-on-different-platforms-including-raspberry-pi/
+            DockerBuildxBuild(c => c
+                // build
+                .SetBuilder("remindery")
+                .SetFile(Dockerfile)
+                .SetTag(DockerImageName)
+                .SetPath(ArtifactsDir)
+                .SetPlatform("linux/amd64,linux/arm64")
+                // push
+                .EnablePush()
             );
         });
 
     Target CompleteBuild => _ => _
-        .DependsOn(BuildDocker);
+        .DependsOn(BuildDocker)
+        .Executes(() =>
+        {
+            var builderExists = Docker("buildx ls").Any(x => x.Text.StartsWith("remindery"));
+            if (builderExists)
+            {
+                Docker("buildx rm remindery");
+            }
+        });
 
     // ==============================================
     // ================== AppVeyor ==================
